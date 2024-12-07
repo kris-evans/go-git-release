@@ -16,6 +16,7 @@ type config struct {
 	releaseNotesPath string
 	releaseTag       string
 	releaseProject   string
+	dryRun           bool
 }
 
 func main() {
@@ -54,6 +55,13 @@ func main() {
 				Destination: &config.releaseTag,
 				Required:    true,
 			},
+			&cli.BoolFlag{
+				Name:        "dry-run",
+				EnvVars:     []string{"RELEASE_DRY_RUN"},
+				Usage:       "Prints the commands that would be executed without running them.",
+				Destination: &config.dryRun,
+				Value:       false,
+			},
 		},
 	}
 
@@ -74,99 +82,129 @@ func run(config *config) func(c *cli.Context) error {
 
 		log.Info("creating release branch", "branch", releaseBranch)
 
-		cmd := exec.Command(
-			"git",
-			"checkout",
-			"-b",
-			releaseBranch,
-		)
+		if !config.dryRun {
+			cmd := exec.Command(
+				"git",
+				"checkout",
+				"-b",
+				releaseBranch,
+			)
 
-		out, err := cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error creating release branch: %w", err)
+			out, err := cmd.Output()
+			if err != nil {
+				return fmt.Errorf("error creating release branch: %w", err)
+			}
+
+			log.Info(string(out))
 		}
-
-		log.Info(string(out))
 
 		releaseNotesFilePath := filepath.Join(config.filePath, config.releaseNotesPath)
 
-		_, err = os.Stat(releaseNotesFilePath)
-		if os.IsNotExist(err) {
-			log.Info("creating release notes file", "path", releaseNotesFilePath)
-			file, err := os.Create(releaseNotesFilePath)
-			if err != nil {
-				return fmt.Errorf("error creating file: %w", err)
+		if !config.dryRun {
+			_, err := os.Stat(releaseNotesFilePath)
+			if os.IsNotExist(err) {
+				log.Info("creating release notes file", "path", releaseNotesFilePath)
+				file, err := os.Create(releaseNotesFilePath)
+				if err != nil {
+					return fmt.Errorf("error creating file: %w", err)
+				}
+				defer file.Close()
 			}
-			defer file.Close()
 		}
 
-		log.Info("creating release notes using git cliff", "tag", projectReleaseTag, "notes", releaseNotesFilePath)
+		wildcardPath := filepath.Join(config.filePath, "**", "*")
 
-		cmd = exec.Command(
-			"git",
-			"cliff",
-			"--include-path", filepath.Join(config.filePath, "**", "*"),
-			"--unreleased",
-			"--strip", "all",
-			"--tag",
-			projectReleaseTag,
-			"--prepend", releaseNotesFilePath,
-		)
+		log.Info("creating release notes using git cliff", "command",
+			fmt.Sprintf("git cliff --include-path %s --strip all --tag %s --output %s", wildcardPath, projectReleaseTag, releaseNotesFilePath))
 
-		out, err = cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error running git cliff: %w", err)
+		if !config.dryRun {
+			cmd := exec.Command(
+				"git",
+				"cliff",
+				"--include-path", filepath.Join(config.filePath, "**", "*"),
+				"--strip", "all",
+				"--tag",
+				projectReleaseTag,
+				"--output", releaseNotesFilePath,
+			)
+
+			out, err := cmd.Output()
+			if err != nil {
+				return fmt.Errorf("error running git cliff: %w", err)
+			}
+
+			log.Info(string(out))
+		} else {
+			cmd := exec.Command(
+				"git",
+				"cliff",
+				"--include-path", filepath.Join(config.filePath, "**", "*"),
+				"--strip", "all",
+				"--tag",
+				projectReleaseTag,
+			)
+
+			out, err := cmd.Output()
+			if err != nil {
+				return fmt.Errorf("error running git cliff: %w", err)
+			}
+
+			log.Info(string(out))
 		}
-
-		log.Info(string(out))
 
 		log.Info("adding files to be committed", "files", releaseNotesFilePath)
 
-		cmd = exec.Command(
-			"git",
-			"add",
-			releaseNotesFilePath,
-		)
+		if !config.dryRun {
+			cmd := exec.Command(
+				"git",
+				"add",
+				releaseNotesFilePath,
+			)
 
-		out, err = cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error adding release notes: %w", err)
+			out, err := cmd.Output()
+			if err != nil {
+				return fmt.Errorf("error adding release notes: %w", err)
+			}
+
+			log.Info(string(out))
 		}
-
-		log.Info(string(out))
 
 		commitMessage := fmt.Sprintf("Release %s %s", config.releaseProject, config.releaseTag)
 
 		log.Info("commiting the release notes", "message", commitMessage)
 
-		cmd = exec.Command(
-			"git",
-			"commit",
-			"-m",
-			commitMessage,
-		)
+		if !config.dryRun {
+			cmd := exec.Command(
+				"git",
+				"commit",
+				"-m",
+				commitMessage,
+			)
 
-		out, err = cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error adding release notes: %w", err)
+			out, err := cmd.Output()
+			if err != nil {
+				return fmt.Errorf("error adding release notes: %w", err)
+			}
+
+			log.Info(string(out))
 		}
-
-		log.Info(string(out))
 
 		log.Info("creating git tag", "tag", projectReleaseTag)
 
-		cmd = exec.Command(
-			"git",
-			"tag",
-			projectReleaseTag,
-		)
+		if !config.dryRun {
+			cmd := exec.Command(
+				"git",
+				"tag",
+				projectReleaseTag,
+			)
 
-		out, err = cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error adding release notes: %w", err)
+			out, err := cmd.Output()
+			if err != nil {
+				return fmt.Errorf("error adding release notes: %w", err)
+			}
+
+			log.Info(string(out))
 		}
-
-		log.Info(string(out))
 
 		return nil
 	}
